@@ -1,63 +1,96 @@
-// `checkUsernameFree`, `checkUsernameExists` ve `checkPasswordLength` gereklidir (require)
-// `auth-middleware.js` deki middleware fonksiyonları. Bunlara burda ihtiyacınız var!
+const userModel = require("../users/users-model");
+const bcrypt = require("bcryptjs"); 
 
+/*
+  Kullanıcının sunucuda kayıtlı bir oturumu yoksa
 
-/**
-  1 [POST] /api/auth/register { "username": "sue", "password": "1234" }
-
-  response:
-  status: 201
+  status: 401
   {
-    "user_id": 2,
-    "username": "sue"
+    "message": "Geçemezsiniz!"
   }
+*/
+function sinirli(req,res,next) {
+  try {
+    if(req.session && req.session.user_id>0){
+      next();
+    }else{
+      res.status(401).json({message:"Geçemezsiniz!"});
+    }
+  } catch (error) {
+    next(error);
+  }
+}
 
-  response username alınmış:
+/*
+  req.body de verilen username halihazırda veritabanında varsa
+
   status: 422
   {
     "message": "Username kullaniliyor"
   }
+*/
+async function usernameBostami(req,res,next) {
+  try {
+    const isExist = await userModel.goreBul({username:req.body.username});
+    if(isExist && isExist.length>0){
+      res.status(422).json({"message": "Username kullaniliyor"})
+    }else{
+      next();
+    }
+  } catch (error) {
+    next(error);
+  }
+}
 
-  response şifre 3 ya da daha az karakterli:
+/*
+  req.body de verilen username veritabanında yoksa
+
+  status: 401
+  {
+    "message": "Geçersiz kriter"
+  }
+*/
+async function usernameVarmi(req,res,next) {
+  try {
+    let {username,password} = req.body;
+    const isExist = await userModel.goreBul({username:username});
+    let isValidLogin = isExist.length>0 && bcrypt.compareSync(password,isExist[0].password);
+    if(!isValidLogin){
+      res.status(422).json({"message": "Geçersiz kriter"})
+    }
+    else{
+      req.currentUser = isExist[0];
+      next();
+    }
+  } catch (error) {
+    next(error);
+  }
+}
+
+/*
+  req.body de şifre yoksa veya 3 karakterden azsa
+
   status: 422
   {
     "message": "Şifre 3 karakterden fazla olmalı"
   }
- */
-
-
-/**
-  2 [POST] /api/auth/login { "username": "sue", "password": "1234" }
-
-  response:
-  status: 200
-  {
-    "message": "Hoşgeldin sue!"
+*/
+function sifreGecerlimi(req,res,next) {
+  try {
+    const validPassword = req.body.password && req.body.password.length>3;
+    if(!validPassword){
+      res.status(422).json({
+        "message": "Şifre 3 karakterden fazla olmalı"
+      })
+    }else{
+      next();
+    }
+  } catch (error) {
+    next(error);
   }
+}
 
-  response geçersiz kriter:
-  status: 401
-  {
-    "message": "Geçersiz kriter!"
-  }
- */
-
-
-/**
-  3 [GET] /api/auth/logout
-
-  response giriş yapmış kullanıcılar için:
-  status: 200
-  {
-    "message": "Çıkış yapildi"
-  }
-
-  response giriş yapmamış kullanıcılar için:
-  status: 200
-  {
-    "message": "Oturum bulunamadı!"
-  }
- */
-
- 
-// Diğer modüllerde kullanılabilmesi için routerı "exports" nesnesine eklemeyi unutmayın.
+// Diğer modüllerde kullanılabilmesi için fonksiyonları "exports" nesnesine eklemeyi unutmayın.
+module.exports = {
+  sifreGecerlimi,usernameBostami,usernameVarmi,sinirli
+}
